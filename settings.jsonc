@@ -100,7 +100,7 @@
   //
   "clipboard": {
 
-    // Enable or disable clipboard copy.
+    // Enable or disable clipboard copy. To save time when using LLMs.
     //
     "enabled": true,
 
@@ -111,7 +111,7 @@
     // - instructions for reviewers
     // - analysis guidance
     //
-    "text": "请阅读我提供的 structure&code.txt：先总结项目结构，再指出可改进的分层与边界，最后给出可落地的重构建议。"
+    "text": "Please read the structure&code.txt I provided: first summarize the project structure, then review the code in every file, and finally fix the bugs and provide me with the complete code for the files that need to be fixed. Please respond in Chinese."
   },
 
   // Ignore rules:
