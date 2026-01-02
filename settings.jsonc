@@ -2,131 +2,196 @@
 // ai-context-dump settings.jsonc
 // ===============================
 //
-// Notes:
+// IMPORTANT:
 // - This file is JSON with full-line comments.
 // - Any line starting with // or # will be ignored.
-// - Patterns support wildcards like * and ? (fnmatch-style).
+// - Inline comments are NOT supported.
+// - All semantics below reflect the ACTUAL Python implementation behavior.
 //
 {
-  // Which OS style to use for rendering paths in ALL human-visible output:
+  // ------------------------------------------------------------
+  // OS path rendering style (DISPLAY ONLY)
+  // ------------------------------------------------------------
   //
-  // - "auto"    : use the current OS style
-  // - "windows" : use backslashes (\)
-  // - "posix"   : use forward slashes (/)
+  // Controls how paths are RENDERED in human-visible output.
   //
-  // This setting affects:
-  // - "// Path: ..." headers inside generated txt files
-  // - console output listing generated files
+  // Available values:
+  // - "auto"    : use Python's default Path string rendering
+  // - "windows" : force backslashes (\)
+  // - "posix"   : force forward slashes (/)
   //
-  // It does NOT affect traversal, ignore rules, or filesystem access.
+  // Affects:
+  // - "// # File Path: ..." headers inside generated txt files
+  // - relative path formatting inside file headers
+  //
+  // Does NOT affect:
+  // - filesystem traversal
+  // - ignore rules
+  // - path matching
   //
   "os": "auto",
 
-  // Root directory to scan (relative or absolute).
+  // ------------------------------------------------------------
+  // Traversal root directory
+  // ------------------------------------------------------------
   //
-  // This directory is used ONLY as the traversal root for collecting:
+  // Root directory to scan for:
   // - directory structure
   // - file list
   // - file contents
   //
-  // It does NOT affect where output files are written.
+  // This path is resolved to an ABSOLUTE path before traversal.
   //
-  // Windows example: ".\\..\\..\\"
-  // POSIX example: "../../"
+  // IMPORTANT:
+  // - This ONLY affects what is scanned.
+  // - It does NOT affect where output files are written.
+  //
+  // Examples:
+  // - Windows: ".\\..\\..\\"
+  // - POSIX:   "../../"
   //
   "iter_root": ".\\..\\..\\",
 
-  // Output settings:
+  // ------------------------------------------------------------
+  // Output configuration
+  // ------------------------------------------------------------
   //
-  // All output files are ALWAYS written relative to the directory
-  // containing this Python script (.py file).
+  // ALL output files are ALWAYS written relative to:
+  //   the directory containing the Python script (.py file)
   //
   "output": {
 
-    // Output mode:
+    // ----------------------------------------------------------
+    // Output mode
+    // ----------------------------------------------------------
     //
-    // - "structure" : output project structure only
-    // - "code"      : output file contents only
-    // - "both"      : structure first, then all files (path + content) in ONE file
-    // - "split"     : structure and code into TWO separate files
+    // Determines WHAT is written and HOW MANY files are produced.
+    //
+    // Available values:
+    //
+    // - "structure":
+    //     Output ONLY the directory structure tree.
+    //
+    // - "code":
+    //     Output ONLY file contents (with path headers).
+    //
+    // - "both":
+    //     Output structure FIRST, then ALL file contents,
+    //     combined into ONE single file.
+    //
+    // - "split":
+    //     Output structure and file contents into TWO files.
     //
     "mode": "both",
 
-    // Used by mode: structure / code / both
+    // ----------------------------------------------------------
+    // Single output file path
+    // ----------------------------------------------------------
     //
-    // Path is relative to the directory containing this .py file.
+    // Used when mode is:
+    // - "structure"
+    // - "code"
+    // - "both"
+    //
+    // Path is RELATIVE to the directory containing the Python script.
     //
     "single_file": ".\\structure&code.txt",
 
-    // Used by mode: split
+    // ----------------------------------------------------------
+    // Split output file paths
+    // ----------------------------------------------------------
     //
-    // Paths are relative to the directory containing this .py file.
+    // Used ONLY when mode is "split".
+    //
+    // Paths are RELATIVE to the directory containing the Python script.
     //
     "structure_file": ".\\structure.txt",
     "code_file": ".\\code.txt",
 
-    // Path display style for ALL human-visible paths:
+    // ----------------------------------------------------------
+    // Path display style (DISPLAY ONLY)
+    // ----------------------------------------------------------
     //
-    // This setting controls how paths are rendered in:
-    // - "// Path: ..." headers inside generated txt files
-    // - console output listing generated files
-    //
-    // It does NOT affect traversal, ignore rules, or file reading.
+    // Controls how paths are DISPLAYED in output.
     //
     // Available values:
     //
     // - "relative":
-    //     For file content headers ("// Path:"):
-    //       paths are rendered relative to iter_root.
     //
-    //     For console output of generated files:
-    //       paths are rendered relative to the directory
-    //       containing this Python script (.py file).
+    //     * Inside file content headers:
+    //         paths are rendered RELATIVE to iter_root.
     //
+    //     * In console output listing generated files:
+    //         paths are rendered RELATIVE to the script directory.
+    //
+    //     NOTE:
     //     This mixed behavior is intentional and reflects
-    //     the current implementation.
+    //     the current Python implementation.
     //
     // - "absolute":
-    //     All paths are rendered as absolute filesystem paths
-    //     using Path.resolve().
+    //
+    //     * All displayed paths are rendered as absolute paths
+    //       using Path.resolve().
+    //
+    // Does NOT affect:
+    // - traversal
+    // - ignore rules
+    // - file reading
     //
     "path_style": "relative"
   },
 
-  // Clipboard settings:
+  // ------------------------------------------------------------
+  // Clipboard behavior
+  // ------------------------------------------------------------
   //
-  // If enabled, the text below will be copied to the system clipboard
-  // AFTER the dump files are successfully generated.
+  // If enabled, the specified text will be copied to the system
+  // clipboard AFTER all output files are successfully generated.
+  //
+  // Clipboard implementation uses tkinter and may fail silently
+  // on headless or minimal environments.
   //
   "clipboard": {
 
-    // Enable or disable clipboard copy. To save time when using LLMs.
+    // Enable or disable clipboard copy.
     //
     "enabled": true,
 
     // Text to copy into clipboard.
     //
     // Typical usage:
-    // - prompt for LLMs
-    // - instructions for reviewers
+    // - LLM prompt
+    // - reviewer instructions
     // - analysis guidance
     //
     "text": "Please read the structure&code.txt I provided: first summarize the project structure, then review the code in every file, and finally fix the bugs and provide me with the complete code for the files that need to be fixed. Please respond in Chinese."
   },
 
-  // Ignore rules:
+  // ------------------------------------------------------------
+  // Ignore rules (TRAVERSAL ONLY)
+  // ------------------------------------------------------------
   //
   // IMPORTANT:
-  // - Ignore rules ONLY affect traversal.
-  // - Ignored files/directories are NOT collected.
-  // - Ignore rules NEVER affect output formatting.
+  // - Ignore rules ONLY affect traversal and collection.
+  // - Ignored paths are NOT included in:
+  //     * directory structure
+  //     * file list
+  //     * file contents
+  //
+  // Ignore rules NEVER affect:
+  // - output formatting
+  // - path rendering
   //
   "ignore": {
 
-    // Ignore by file extensions (case-insensitive).
+    // ----------------------------------------------------------
+    // Ignore by file extension
+    // ----------------------------------------------------------
     //
-    // Example:
-    // - ".MD" will be normalized to ".md"
+    // Case-insensitive.
+    // Extensions are normalized to lowercase and forced to start with ".".
+    //
+    // Applies ONLY to files.
     //
     "extensions": [
       ".dll", ".exe", ".pdb",
@@ -135,17 +200,42 @@
       ".pdf", ".MD"
     ],
 
-    // Ignore by patterns:
+    // ----------------------------------------------------------
+    // Ignore by pattern (fnmatch-style)
+    // ----------------------------------------------------------
     //
     // Patterns are matched against:
-    // - the basename
-    // - AND every path segment (directory names and file names)
     //
-    // This allows patterns like:
-    // - "ai-context-dump*" to ignore a directory
-    //   named "ai-context-dump" at any depth.
+    // - the FULL relative path (POSIX-style) IF pattern contains "/"
+    // - the basename AND every individual path segment
+    //   IF pattern does NOT contain "/"
     //
-    // Directory pruning is derived automatically from these patterns.
+    // Matching is case-insensitive.
+    //
+    // Examples:
+    //
+    // - ".git*"
+    //     Matches ".git", ".gitignore", ".gitmodules"
+    //     at ANY directory depth.
+    //
+    // - "bin*"
+    //     Matches directories or files named "bin", "bin64", etc.
+    //     at ANY depth.
+    //
+    // - "tools*"
+    //     Matches any path segment starting with "tools".
+    //
+    // ----------------------------------------------------------
+    // Directory pruning behavior:
+    //
+    // ONLY patterns ending with:
+    // - "xxx/"
+    // - "xxx/*"
+    //
+    // are converted into directory-pruning rules.
+    //
+    // Patterns like "bin*" or ".git*" DO NOT prune directories;
+    // they only cause directories to be skipped AFTER entering them.
     //
     "patterns": [
       ".git*",

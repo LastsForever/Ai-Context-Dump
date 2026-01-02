@@ -12,7 +12,7 @@ Dump a project’s directory structure and source code into an AI-friendly text 
 - Filters traversal using:
   - ignored extensions (`ignore.extensions`)
   - optional glob patterns (`ignore.patterns`)
-  - derived directory pruning rules (from patterns like `.git/*` or `bin/`)
+  - derived directory pruning rules (ONLY derived from patterns ending with `/` or `/*`, e.g. `.git/`, `.git/*`, `bin/`, `bin/*`)
 - Generates output according to mode:
   - **structure**: structure only
   - **code**: code only
@@ -73,6 +73,8 @@ Controls how file paths are rendered in the output:
 - `posix`: forward slashes `/`
 - `windows`: backslashes `\`
 
+**Note:** this affects path DISPLAY only (headers and console output), not traversal or matching.
+
 ---
 
 ### output
@@ -80,8 +82,11 @@ Controls how file paths are rendered in the output:
 - `output.mode`: `structure | code | both | split`
 - `output.single_file`: used by `structure | code | both`
 - `output.structure_file` and `output.code_file`: used by `split`
+
 - `output.path_style`: controls whether displayed paths are relative or absolute:
-  - `relative`: use relative paths in output
+  - `relative`:
+    - in file content headers (`// # File Path:`), paths are relative to `iter_root`
+    - in console output (generated file list), paths are relative to the script directory
   - `absolute`: use absolute paths via `Path.resolve()`
 
 **Note:** Output files are always written relative to the directory containing the `.py` script.
@@ -97,20 +102,31 @@ Controls how file paths are rendered in the output:
 
 ### ignore
 
-- `ignore.extensions`: ignore by file extension (case-insensitive)
+- `ignore.extensions`: ignore by file extension (case-insensitive; extensions are normalized to lowercase and forced to start with `.`)
 - `ignore.patterns`: ignore by glob patterns (fnmatch-style)
 
 #### Pattern matching behavior
 
-- If a pattern contains `/`, it is matched against the full relative path (POSIX-form).
+- If a pattern contains `/`, it is matched against the full relative path (POSIX-form, relative to `iter_root`).
 - Otherwise it is matched against:
   - the basename, and
   - any path segment (directory or file name)
 
+Matching is case-insensitive.
+
 #### Directory pruning behavior
 
-Patterns like `.git/` or `.git/*` or `bin/` or `bin/*` are treated as  
-“ignore any directory with that name at any depth”.
+Directory pruning rules are derived ONLY from patterns that end with:
+
+- `xxx/`
+- `xxx/*`
+
+These derived rules are used to prune `os.walk()` directory traversal (`dirnames[:]` filtering).
+
+**Important details (as implemented):**
+
+- Pruning checks only the immediate directory name (not the full relative path).
+- Patterns like `bin*` or `.git*` do NOT produce pruning rules; they only take effect via normal ignore matching (after entering directories).
 
 ---
 
