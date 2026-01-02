@@ -1,6 +1,6 @@
 # ai-context-dump
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.MD) | [中文](README.zh-CN.MD)
 
 Dump a project’s directory structure and source code into an AI-friendly text file (or files).
 
@@ -103,3 +103,4 @@ Notes on clipboard
 Clipboard uses Python standard library tkinter. On some minimal Linux environments, tkinter may be missing; in that case, the tool will print Clipboard: failed, but file generation is unaffected.
 
 License
+MIT

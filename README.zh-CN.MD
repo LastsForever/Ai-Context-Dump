@@ -1,6 +1,6 @@
 # ai-context-dump
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.MD) | [中文](README.zh-CN.MD)
 
 把项目的目录结构与源代码汇总成适合一次性投喂 AI 的文本文件（支持单文件或分文件输出）。
 
