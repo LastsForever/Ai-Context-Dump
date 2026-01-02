@@ -2,16 +2,17 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-Dump a project’s directory structure and source code into AI-friendly text files.
+Dump a project’s directory structure and source code into an AI-friendly text file (or files).
 
 ---
 
 ## What it does
 
-- Walks a configured root directory
-- Filters files using:
-  - ignored extensions
-  - optional glob patterns
+- Walks a configured traversal root directory (`iter_root`)
+- Filters traversal using:
+  - ignored extensions (`ignore.extensions`)
+  - optional glob patterns (`ignore.patterns`)
+  - derived directory pruning rules (from patterns like `.git/*` or `bin/`)
 - Generates output according to mode:
   - **structure**: structure only
   - **code**: code only
@@ -35,123 +36,70 @@ Dump a project’s directory structure and source code into AI-friendly text fil
 ```text
 tools/ai-context-dump/
   ai_context_dump.py
-  ai-context-dump.settings.json
-Run:
+  settings.jsonc
+Edit settings.jsonc (see below), then run:
 
 bash
 python ai_context_dump.py
-Check generated outputs under the configured root directory.
+Check the generated .txt outputs next to the Python script (the tool always writes outputs under the script directory, not under iter_root).
 
 Settings
-Edit ai-context-dump.settings.json:
+The default settings file name is settings.jsonc (JSON with full-line comments). Lines starting with // or # are ignored.
 
-root: root directory to scan
+iter_root (or root)
+iter_root: traversal root directory (relative or absolute)
 
-os: auto | posix | windows (controls how paths are rendered in the dump)
+Backward compatibility: if iter_root is missing, the tool falls back to root
 
-output.mode:
+os
+Controls how file paths are rendered in the output:
 
-structure
+auto: current OS style
 
-code
+posix: forward slashes /
 
-both
+windows: backslashes \
 
-split
+output
+output.mode: structure | code | both | split
 
-clipboard.enabled: copy prompt text to clipboard after generation
+output.single_file: used by structure | code | both
 
-clipboard.text: the prompt to copy
+output.structure_file and output.code_file: used by split
 
-ignore.extensions: ignored file extensions (e.g. .dll, .png)
+output.path_style: controls whether displayed paths are relative or absolute:
 
-ignore.patterns: optional glob-style ignore patterns (e.g. bin/*)
+relative: use relative paths in output
+
+absolute: use absolute paths via Path.resolve()
+
+Note: Output files are always written relative to the directory containing the .py script.
+
+clipboard
+clipboard.enabled: if true, try to copy clipboard.text to the clipboard after generation
+
+clipboard.text: the prompt text to copy
+
+ignore
+ignore.extensions: ignore by file extension (case-insensitive)
+
+ignore.patterns: ignore by glob patterns (fnmatch-style)
+
+Pattern matching behavior:
+
+If a pattern contains /, it is matched against the full relative path (POSIX-form).
+
+Otherwise it is matched against:
+
+the basename, and
+
+any path segment (directory or file name)
+
+Directory pruning behavior:
+
+Patterns like .git/ or .git/* or bin/ or bin/* are treated as “ignore any directory with that name at any depth”.
 
 Notes on clipboard
-Clipboard uses Python standard library tkinter. On some minimal Linux environments, tkinter may be missing; in that case, the tool will simply print Clipboard: failed.
+Clipboard uses Python standard library tkinter. On some minimal Linux environments, tkinter may be missing; in that case, the tool will print Clipboard: failed, but file generation is unaffected.
 
 License
-MIT
-
-代码
-
----
-
-## README（中文版）：`README.zh-CN.md`
-
-```markdown
-# ai-context-dump
-
-[English](README.md) | [中文](README.zh-CN.md)
-
-把项目的目录结构与源代码汇总成适合一次性投喂 AI 的文本文件。
-
----
-
-## 功能
-
-- 按配置的根目录扫描项目
-- 支持两类忽略规则：
-  - **按文件扩展名忽略**（你的核心诉求）
-  - **可选的 glob patterns 忽略**
-- 支持多种输出模式：
-  - **structure**：只输出结构
-  - **code**：只输出代码
-  - **both**：结构 + 代码输出到同一个文件
-  - **split**：结构与代码分别输出到两个文件
-- 可选：执行完成后把预设“问 AI 的提示词”复制到剪贴板（标准库 `tkinter`）
-
----
-
-## 环境要求
-
-- Python 3.x
-- 无第三方依赖
-
----
-
-## 快速开始
-
-1. 建议放在：
-
-```text
-tools/ai-context-dump/
-  ai_context_dump.py
-  ai-context-dump.settings.json
-运行：
-
-bash
-python ai_context_dump.py
-在 settings.json 里配置的 root 目录下查看输出文件。
-
-配置说明
-编辑 ai-context-dump.settings.json：
-
-root：开始迭代的根目录
-
-os：auto | posix | windows（仅影响输出文件中路径分隔符的展示）
-
-output.mode：
-
-structure
-
-code
-
-both
-
-split
-
-clipboard.enabled：是否复制提示词到剪贴板
-
-clipboard.text：复制到剪贴板的提示词内容
-
-ignore.extensions：忽略的文件扩展名（例如 .dll、.png）
-
-ignore.patterns：可选 glob 忽略规则（例如 bin/*）
-
-关于剪贴板
-剪贴板功能使用 Python 标准库 tkinter。某些精简 Linux 环境可能未安装 tkinter，此时会提示 Clipboard: failed，但导出不受影响。
-
-License
-MIT
-

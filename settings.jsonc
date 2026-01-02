@@ -1,0 +1,161 @@
+// ===============================
+// ai-context-dump settings.jsonc
+// ===============================
+//
+// Notes:
+// - This file is JSON with full-line comments.
+// - Any line starting with // or # will be ignored.
+// - Patterns support wildcards like * and ? (fnmatch-style).
+//
+{
+  // Which OS style to use for rendering paths in ALL human-visible output:
+  //
+  // - "auto"    : use the current OS style
+  // - "windows" : use backslashes (\)
+  // - "posix"   : use forward slashes (/)
+  //
+  // This setting affects:
+  // - "// Path: ..." headers inside generated txt files
+  // - console output listing generated files
+  //
+  // It does NOT affect traversal, ignore rules, or filesystem access.
+  //
+  "os": "auto",
+
+  // Root directory to scan (relative or absolute).
+  //
+  // This directory is used ONLY as the traversal root for collecting:
+  // - directory structure
+  // - file list
+  // - file contents
+  //
+  // It does NOT affect where output files are written.
+  //
+  // Windows example: ".\\..\\..\\"
+  // POSIX example: "../../"
+  //
+  "iter_root": ".\\..\\..\\",
+
+  // Output settings:
+  //
+  // All output files are ALWAYS written relative to the directory
+  // containing this Python script (.py file).
+  //
+  "output": {
+
+    // Output mode:
+    //
+    // - "structure" : output project structure only
+    // - "code"      : output file contents only
+    // - "both"      : structure first, then all files (path + content) in ONE file
+    // - "split"     : structure and code into TWO separate files
+    //
+    "mode": "both",
+
+    // Used by mode: structure / code / both
+    //
+    // Path is relative to the directory containing this .py file.
+    //
+    "single_file": ".\\structure&code.txt",
+
+    // Used by mode: split
+    //
+    // Paths are relative to the directory containing this .py file.
+    //
+    "structure_file": ".\\structure.txt",
+    "code_file": ".\\code.txt",
+
+    // Path display style for ALL human-visible paths:
+    //
+    // This setting controls how paths are rendered in:
+    // - "// Path: ..." headers inside generated txt files
+    // - console output listing generated files
+    //
+    // It does NOT affect traversal, ignore rules, or file reading.
+    //
+    // Available values:
+    //
+    // - "relative":
+    //     For file content headers ("// Path:"):
+    //       paths are rendered relative to iter_root.
+    //
+    //     For console output of generated files:
+    //       paths are rendered relative to the directory
+    //       containing this Python script (.py file).
+    //
+    //     This mixed behavior is intentional and reflects
+    //     the current implementation.
+    //
+    // - "absolute":
+    //     All paths are rendered as absolute filesystem paths
+    //     using Path.resolve().
+    //
+    "path_style": "relative"
+  },
+
+  // Clipboard settings:
+  //
+  // If enabled, the text below will be copied to the system clipboard
+  // AFTER the dump files are successfully generated.
+  //
+  "clipboard": {
+
+    // Enable or disable clipboard copy.
+    //
+    "enabled": true,
+
+    // Text to copy into clipboard.
+    //
+    // Typical usage:
+    // - prompt for LLMs
+    // - instructions for reviewers
+    // - analysis guidance
+    //
+    "text": "请阅读我提供的 structure&code.txt：先总结项目结构，再指出可改进的分层与边界，最后给出可落地的重构建议。"
+  },
+
+  // Ignore rules:
+  //
+  // IMPORTANT:
+  // - Ignore rules ONLY affect traversal.
+  // - Ignored files/directories are NOT collected.
+  // - Ignore rules NEVER affect output formatting.
+  //
+  "ignore": {
+
+    // Ignore by file extensions (case-insensitive).
+    //
+    // Example:
+    // - ".MD" will be normalized to ".md"
+    //
+    "extensions": [
+      ".dll", ".exe", ".pdb",
+      ".png", ".jpg", ".jpeg", ".gif",
+      ".zip", ".tar", ".gz",
+      ".pdf", ".MD"
+    ],
+
+    // Ignore by patterns:
+    //
+    // Patterns are matched against:
+    // - the basename
+    // - AND every path segment (directory names and file names)
+    //
+    // This allows patterns like:
+    // - "ai-context-dump*" to ignore a directory
+    //   named "ai-context-dump" at any depth.
+    //
+    // Directory pruning is derived automatically from these patterns.
+    //
+    "patterns": [
+      ".git*",
+      "bin*",
+      "obj*",
+      ".vs*",
+      ".idea*",
+      "structure&code.txt",
+      "ai-context-dump*",
+      "tools*"
+    ]
+  }
+}
