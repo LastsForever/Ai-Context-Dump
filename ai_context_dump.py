@@ -1,361 +1,331 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
-
 import json
 import os
-import fnmatch
+import re
+import sys
+import math
+import subprocess
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Dict, Iterable, List, Set, Tuple
+from pathlib import Path
+from typing import List, Set, Tuple, Dict, Optional
 
+# ==========================================
+# 1. 基础辅助
+# ==========================================
+class Util:
+    @staticmethod
+    def to_posix(s: str) -> str:
+        return s.replace('\\', '/')
 
-DEFAULT_SETTINGS_FILE = "settings.jsonc"
+    @staticmethod
+    def norm_ext(s: str) -> str:
+        t = s.strip().lower()
+        if not t: return ""
+        return t if t.startswith(".") else "." + t
 
+    @staticmethod
+    def glob_to_regex(pattern: str) -> str:
+        # 模仿 F# 中的 globToRegex 实现
+        sb = ["^"]
+        for c in pattern:
+            if c == '*': sb.append(".*")
+            elif c == '?': sb.append(".")
+            elif c in ".()+|^$@%": sb.append("\\" + c)
+            else: sb.append(c)
+        sb.append("$")
+        return "".join(sb)
 
-# ----------------------------
-# Settings parsing (JSON + full-line comments)
-# ----------------------------
-
-def load_json_with_comments(path: Path) -> dict:
-    lines = path.read_text(encoding="utf-8").splitlines()
-    cleaned = "\n".join(
-        line for line in lines
-        if not line.lstrip().startswith(("//", "#"))
-    )
-    return json.loads(cleaned)
-
-
-def to_posix(s: str) -> str:
-    return s.replace("\\", "/")
-
-
-def norm_ext(ext: str) -> str:
-    e = (ext or "").strip().lower()
-    if not e:
-        return ""
-    return e if e.startswith(".") else f".{e}"
-
-
-# ----------------------------
-# Settings models
-# ----------------------------
-
-@dataclass(frozen=True)
+# ==========================================
+# 2. 配置模型
+# ==========================================
+@dataclass
 class OutputConfig:
-    mode: str                 # structure | code | both | split
+    mode: str
     single_file: str
     structure_file: str
     code_file: str
-    path_style: str           # relative | absolute
+    path_style: str
 
-
-@dataclass(frozen=True)
+@dataclass
 class ClipboardConfig:
     enabled: bool
     text: str
 
-
-@dataclass(frozen=True)
+@dataclass
 class IgnoreConfig:
-    extensions: frozenset[str]
-    patterns: Tuple[str, ...]
-    dir_rules: Tuple[str, ...]
+    extensions: Set[str]
+    patterns: List[str]
+    dir_rules: List[str]
 
-
-@dataclass(frozen=True)
+@dataclass
 class Settings:
-    iter_root: Path
+    iter_root: str
     os_style: str
     output: OutputConfig
     clipboard: ClipboardConfig
     ignore: IgnoreConfig
 
+# ==========================================
+# 3. 配置加载
+# ==========================================
+module_json_config = None # 命名占位
 
-# ----------------------------
-# Settings loading
-# ----------------------------
+def load_settings(path: str) -> Settings:
+    with open(path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    # 过滤注释
+    cleaned_json = "".join([l for l in lines if not l.lstrip().startswith(("//", "#"))])
+    root = json.loads(cleaned_json)
 
-def derive_dir_rules(patterns: Iterable[str]) -> Tuple[str, ...]:
-    rules: List[str] = []
-    for pat in patterns:
-        p = to_posix((pat or "").strip())
-        if not p:
-            continue
-        if p.endswith("/*"):
-            rules.append(p[:-2])
-        elif p.endswith("/"):
-            rules.append(p[:-1])
-    return tuple(rules)
+    def get_prop(d, keys, default):
+        for k in keys:
+            if k in d: return d[k]
+        return default
 
+    iter_root = os.path.abspath(get_prop(root, ["iter_root", "root"], "."))
+    os_style = str(root.get("os", "auto")).strip().lower()
 
-def load_settings(settings_path: Path) -> Settings:
-    raw = load_json_with_comments(settings_path)
-
-    iter_root = Path(raw.get("iter_root", raw.get("root", "."))).resolve()
-    os_style = (raw.get("os", "auto") or "auto").strip().lower()
-
-    out_raw = raw.get("output", {}) or {}
+    out_el = root.get("output", {})
     output = OutputConfig(
-        mode=(out_raw.get("mode", "both") or "both").strip().lower(),
-        single_file=str(out_raw.get("single_file", "structure&code.txt")),
-        structure_file=str(out_raw.get("structure_file", "structure.txt")),
-        code_file=str(out_raw.get("code_file", "code.txt")),
-        path_style=(out_raw.get("path_style", "relative") or "relative").strip().lower(),
+        mode=str(out_el.get("mode", "both")).lower(),
+        single_file=out_el.get("single_file", "structure&code.txt"),
+        structure_file=out_el.get("structure_file", "structure.txt"),
+        code_file=out_el.get("code_file", "code.txt"),
+        path_style=str(out_el.get("path_style", "relative")).lower()
     )
 
-    cb_raw = raw.get("clipboard", {}) or {}
+    cb_el = root.get("clipboard", {})
     clipboard = ClipboardConfig(
-        enabled=bool(cb_raw.get("enabled", False)),
-        text=str(cb_raw.get("text", "")),
+        enabled=bool(cb_el.get("enabled", False)),
+        text=str(cb_el.get("text", ""))
     )
 
-    ig_raw = raw.get("ignore", {}) or {}
-    exts = frozenset(
-        filter(None, (norm_ext(x) for x in (ig_raw.get("extensions", []) or [])))
+    ig_el = root.get("ignore", {})
+    raw_patterns = ig_el.get("patterns", [])
+    
+    dir_rules = []
+    for p in raw_patterns:
+        p2 = Util.to_posix(p.strip())
+        if p2.endswith("/*"): dir_rules.append(p2[:-2])
+        elif p2.endswith("/"): dir_rules.append(p2[:-1])
+
+    extensions = {Util.norm_ext(x) for x in ig_el.get("extensions", [])}
+
+    return Settings(
+        iter_root=iter_root,
+        os_style=os_style,
+        output=output,
+        clipboard=clipboard,
+        ignore=IgnoreConfig(extensions, raw_patterns, dir_rules)
     )
-    patterns = tuple(str(x) for x in (ig_raw.get("patterns", []) or []))
-    dir_rules = derive_dir_rules(patterns)
 
-    ignore = IgnoreConfig(extensions=exts, patterns=patterns, dir_rules=dir_rules)
-    return Settings(iter_root, os_style, output, clipboard, ignore)
-
-
-# ----------------------------
-# Path formatting helpers
-# ----------------------------
-
-def format_rel(root: Path, p: Path, os_style: str) -> str:
-    rel = p.relative_to(root)
-    if os_style == "windows":
-        return str(PureWindowsPath(*rel.parts))
-    if os_style == "posix":
-        return str(PurePosixPath(*rel.parts))
-    return str(rel)
-
-
-def format_output_path(p: Path, script_root: Path, style: str) -> str:
-    if style == "absolute":
-        return str(p.resolve())
-    try:
-        return str(p.relative_to(script_root))
-    except ValueError:
-        return str(p.resolve())
-
-
-# ----------------------------
-# Ignore logic
-# ----------------------------
-
-def match_pattern(rel_posix: str, parts: Tuple[str, ...], basename: str, pat: str) -> bool:
+# ==========================================
+# 4. 核心逻辑
+# ==========================================
+def match_pattern(rel_posix: str, parts: List[str], basename: str, pat: str) -> bool:
     rp = rel_posix.lower()
     bn = basename.lower()
-    pt = to_posix(pat).lower()
-
+    pt = Util.to_posix(pat).lower()
+    regex_str = Util.glob_to_regex(pt)
+    
     if "/" in pt:
-        return fnmatch.fnmatch(rp, pt)
-
-    if fnmatch.fnmatch(bn, pt):
-        return True
-    return any(fnmatch.fnmatch(seg.lower(), pt) for seg in parts)
-
+        return bool(re.match(regex_str, rp, re.IGNORECASE))
+    else:
+        if re.match(regex_str, bn, re.IGNORECASE): return True
+        return any(re.match(regex_str, p.lower(), re.IGNORECASE) for p in parts)
 
 def is_pruned_dir(dirname: str, s: Settings) -> bool:
-    dn = dirname.lower()
-    return any(fnmatch.fnmatch(dn, to_posix(rule).lower()) for rule in s.ignore.dir_rules)
+    dn = Util.to_posix(dirname).lower()
+    for rule in s.ignore.dir_rules:
+        if re.match(Util.glob_to_regex(rule.lower()), dn, re.IGNORECASE):
+            return True
+    return False
 
+def is_ignored_path(iter_root: str, p: str, s: Settings, settings_filename: str) -> bool:
+    name = os.path.basename(p)
+    if name == settings_filename: return True
+    
+    rel = os.path.relpath(p, iter_root)
+    rel_posix = Util.to_posix(rel)
+    parts = rel_posix.split('/')
+    
+    if not os.path.isdir(p):
+        ext = Util.norm_ext(os.path.splitext(p)[1])
+        if ext in s.ignore.extensions: return True
+    
+    return any(match_pattern(rel_posix, parts, name, pat) for pat in s.ignore.patterns)
 
-def is_ignored_path(iter_root: Path, p: Path, s: Settings, settings_filename: str) -> bool:
-    if p.name == settings_filename:
-        return True
+def collect(iter_root: str, s: Settings, settings_filename: str):
+    all_files = []
+    
+    # 检查根目录是否被忽略
+    root_ignored = is_ignored_path(os.path.dirname(iter_root), iter_root, s, settings_filename)
+    if root_ignored:
+        return [], True
 
-    rel_posix = str(PurePosixPath(*p.relative_to(iter_root).parts))
-    parts = tuple(rel_posix.split("/"))
+    for root, dirs, files in os.walk(iter_root):
+        # 这里的 dirs[:] 修改会影响 walk 的后续遍历 (Pruning)
+        dirs[:] = [d for d in dirs if not is_pruned_dir(d, s) and 
+                   not is_ignored_path(iter_root, os.path.join(root, d), s, settings_filename)]
+        
+        for f in files:
+            full_path = os.path.join(root, f)
+            if not is_ignored_path(iter_root, full_path, s, settings_filename):
+                all_files.append(full_path)
 
-    if p.is_file() and p.suffix.lower() in s.ignore.extensions:
-        return True
+    all_files.sort(key=lambda x: Util.to_posix(os.path.relpath(x, iter_root)).lower())
+    return all_files, False
 
-    return any(match_pattern(rel_posix, parts, p.name, pat) for pat in s.ignore.patterns)
-
-
-# ----------------------------
-# Collect
-# ----------------------------
-
-def collect(iter_root: Path, s: Settings, settings_filename: str):
-    dirs: Set[Path] = set()
-    files: List[Path] = []
-
-    for dirpath, dirnames, filenames in os.walk(iter_root):
-        cur_dir = Path(dirpath)
-
-        if cur_dir != iter_root and is_ignored_path(iter_root, cur_dir, s, settings_filename):
-            dirnames[:] = []
-            continue
-
-        dirnames[:] = [d for d in dirnames if not is_pruned_dir(d, s)]
-        dirs.add(cur_dir)
-
-        for name in filenames:
-            fp = cur_dir / name
-            if not is_ignored_path(iter_root, fp, s, settings_filename):
-                files.append(fp)
-
-    files.sort(key=lambda p: str(PurePosixPath(*p.relative_to(iter_root).parts)).lower())
-    return dirs, files
-
-
-# ----------------------------
-# Structure rendering
-# ----------------------------
-
-def build_index(iter_root: Path, dirs: Set[Path], files: List[Path]):
-    idx: Dict[Path, List[Path]] = {}
-
-    def add(parent: Path, child: Path):
-        idx.setdefault(parent, []).append(child)
-
-    for d in dirs:
-        if d != iter_root and d.parent in dirs:
-            add(d.parent, d)
+# ==========================================
+# 5. 树形结构生成
+# ==========================================
+def build_index(iter_root: str, files: List[str]):
+    idx = {}
+    full_root = os.path.abspath(iter_root).rstrip(os.sep)
 
     for f in files:
-        if f.parent in dirs:
-            add(f.parent, f)
+        current_child = os.path.abspath(f).rstrip(os.sep)
+        while True:
+            parent = os.path.dirname(current_child).rstrip(os.sep)
+            if parent not in idx: idx[parent] = set()
+            idx[parent].add(current_child)
+            
+            if parent.lower() == full_root.lower() or len(parent) <= len(full_root):
+                break
+            current_child = parent
 
-    for k in idx:
-        idx[k].sort(key=lambda p: (0 if p.is_dir() else 1, p.name.lower()))
+    # 排序：文件夹在前，文件在后
+    sorted_idx = {}
+    for parent, children in idx.items():
+        child_list = list(children)
+        child_list.sort(key=lambda x: (
+            not os.path.isdir(x), 
+            os.path.basename(x).lower()
+        ))
+        sorted_idx[parent] = child_list
+    return sorted_idx
 
-    return idx
-
-
-def render_structure(iter_root: Path, idx: Dict[Path, List[Path]]):
-    lines = ["## Project structure\n\n", f"{iter_root.name}/\n"]
-
-    def rec(node: Path, depth: int):
-        for ch in idx.get(node, []):
-            lines.append("  " * depth + ch.name + ("/" if ch.is_dir() else "") + "\n")
-            if ch.is_dir():
-                rec(ch, depth + 1)
-
-    rec(iter_root, 1)
+def render_structure(iter_root: str, idx: Dict[str, List[str]]) -> List[str]:
+    lines = ["## Project structure\n\n"]
+    full_root = os.path.abspath(iter_root).rstrip(os.sep)
+    
+    if idx:
+        lines.append(os.path.basename(full_root) + "/\n")
+        def rec(node: str, depth: int):
+            node_full = os.path.abspath(node).rstrip(os.sep)
+            if node_full in idx:
+                for child in idx[node_full]:
+                    indent = "  " * depth
+                    suffix = "/" if os.path.isdir(child) else ""
+                    lines.append(f"{indent}{os.path.basename(child)}{suffix}\n")
+                    if os.path.isdir(child):
+                        rec(child, depth + 1)
+        rec(full_root, 1)
+    else:
+        lines.append("[No files matching the criteria]\n")
+    
     lines.append("\n")
     return lines
 
-
-# ----------------------------
-# File dumping
-# ----------------------------
-
-def dump_file(out, iter_root: Path, f: Path, s: Settings):
-    rel = format_rel(iter_root, f, s.os_style)
-    path_display = rel if s.output.path_style == "relative" else str(f.resolve())
-
-    out.write(f"//\n//\t# File Path: {path_display} #\n//\n\n")
+# ==========================================
+# 6. 文件内容处理与 IO
+# ==========================================
+def dump_file(iter_root: str, s: Settings, file: str) -> str:
+    rel = os.path.relpath(file, iter_root)
+    if s.os_style == "windows": rel = rel.replace('/', '\\')
+    elif s.os_style == "posix": rel = rel.replace('\\', '/')
+    
+    path_display = os.path.abspath(file) if s.output.path_style == "absolute" else rel
+    header = f"//\n//\t# File Path: {path_display} #\n//\n\n"
     try:
-        out.write(f.read_text(encoding="utf-8"))
-    except Exception:
-        out.write("// [Skipped: unreadable or binary file]\n")
-    out.write("\n\n")
-
-
-# ----------------------------
-# Writers
-# ----------------------------
-
-def write_structure_only(path: Path, iter_root: Path, idx):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as out:
-        out.writelines(render_structure(iter_root, idx))
-
-
-def write_code_only(path: Path, iter_root: Path, files, s: Settings):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as out:
-        out.write("## Files\n\n")
-        for f in files:
-            dump_file(out, iter_root, f, s)
-
-
-def write_both_single(path: Path, iter_root: Path, idx, files, s: Settings):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as out:
-        out.writelines(render_structure(iter_root, idx))
-        out.write("## Files\n\n")
-        for f in files:
-            dump_file(out, iter_root, f, s)
-
-
-# ----------------------------
-# Clipboard
-# ----------------------------
+        with open(file, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except:
+        content = "// [Skipped: unreadable or binary file]\n"
+    return header + content + "\n\n"
 
 def copy_to_clipboard(text: str) -> bool:
     try:
-        import tkinter as tk
-        r = tk.Tk()
-        r.withdraw()
-        r.clipboard_clear()
-        r.clipboard_append(text)
-        r.update()
-        r.destroy()
-        return True
-    except Exception:
+        if sys.platform == "win32":
+            process = subprocess.Popen(['clip'], stdin=subprocess.PIPE, text=True)
+        elif sys.platform == "darwin":
+            process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE, text=True)
+        else:
+            process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE, text=True)
+        process.communicate(input=text)
+        return process.returncode == 0
+    except:
         return False
 
+# ==========================================
+# 8. 应用程序逻辑 (App)
+# ==========================================
+def estimate_tokens(text: str) -> int:
+    return math.ceil(len(text) / 4.0)
 
-# ----------------------------
-# Main
-# ----------------------------
+def run():
+    args = sys.argv[1:]
+    settings_file = args[0] if args else "settings.jsonc"
+    settings_path = os.path.abspath(settings_file)
 
-def main(settings_file: str = DEFAULT_SETTINGS_FILE) -> int:
-    sp = Path(settings_file).resolve()
-    if not sp.exists():
-        print(f"Settings file not found: {sp}")
+    if not os.path.exists(settings_path):
+        print(f"Settings file not found: {settings_path}", file=sys.stderr)
         return 2
 
-    s = load_settings(sp)
-    iter_root = s.iter_root
-    script_root = Path(__file__).resolve().parent
+    s = load_settings(settings_path)
+    files, root_ignored = collect(s.iter_root, s, os.path.basename(settings_path))
 
-    dirs, files = collect(iter_root, s, sp.name)
-    idx = build_index(iter_root, dirs, files)
+    if root_ignored:
+        print(f"Error: Iteration root '{s.iter_root}' is ignored.", file=sys.stderr)
+        return 3
 
-    generated: List[Path] = []
+    idx = build_index(s.iter_root, files)
+    struct_lines = render_structure(s.iter_root, idx)
+    
+    code_contents = [dump_file(s.iter_root, s, f) for f in files]
+    all_code_lines = ["## Files\n\n"] + code_contents
 
-    if s.output.mode == "structure":
-        p = script_root / s.output.single_file
-        write_structure_only(p, iter_root, idx)
-        generated.append(p)
+    report_data = []
 
-    elif s.output.mode == "code":
-        p = script_root / s.output.single_file
-        write_code_only(p, iter_root, files, s)
-        generated.append(p)
+    def safe_write(file_name, lines):
+        if not file_name: return
+        full_out = os.path.join(os.getcwd(), file_name)
+        os.makedirs(os.path.dirname(full_out), exist_ok=True)
+        content = "".join(lines)
+        with open(full_out, 'w', encoding='utf-8') as f:
+            f.write(content)
+        report_data.append((file_name, content))
 
-    elif s.output.mode == "split":
-        p1 = script_root / s.output.structure_file
-        p2 = script_root / s.output.code_file
-        write_structure_only(p1, iter_root, idx)
-        write_code_only(p2, iter_root, files, s)
-        generated.extend([p1, p2])
-
+    # 写入逻辑
+    mode = s.output.mode
+    if mode == "structure":
+        safe_write(s.output.single_file, struct_lines)
+    elif mode == "code":
+        safe_write(s.output.single_file, all_code_lines)
+    elif mode == "split":
+        safe_write(s.output.structure_file, struct_lines)
+        safe_write(s.output.code_file, all_code_lines)
     else:
-        p = script_root / s.output.single_file
-        write_both_single(p, iter_root, idx, files, s)
-        generated.append(p)
+        safe_write(s.output.single_file, struct_lines + all_code_lines)
 
+    # 剪贴板
     if s.clipboard.enabled and s.clipboard.text.strip():
-        print("Clipboard:", "copied" if copy_to_clipboard(s.clipboard.text) else "failed")
+        copy_to_clipboard(s.clipboard.text)
 
-    print("Generated txt files:")
-    for p in generated:
-        print(" -", format_output_path(p, script_root, s.output.path_style))
-
+    # 控制台输出 (与 F# 完全一致)
+    print("================================  ai-context-dump ================================")
+    print("Generated files report:\n")
+    for name, content in report_data:
+        print(f" - Path: {name}")
+        print(f"   Chars: {len(content)}")
+        print(f"   Tokens: ~{estimate_tokens(content)}\n")
+    
     print("ai-context-dump finished successfully.")
+    print("==================================================================================")
     return 0
 
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(run())
